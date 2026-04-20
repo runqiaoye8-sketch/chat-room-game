@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>匿名卧底·身份乱斗</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Roboto, sans-serif;
+      background: #1a1e2b;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 16px;
+    }
+    .container {
+      max-width: 900px;
+      width: 100%;
+      background: #252b3d;
+      border-radius: 24px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      padding: 24px;
+      color: #eef2fb;
+    }
+    h2 { font-weight: 500; margin-bottom: 10px; }
+    .badge {
+      background: #3f4a6b;
+      padding: 4px 12px;
+      border-radius: 30px;
+      font-size: 14px;
+    }
+    .topic-banner {
+      background: #2a3448;
+      border-radius: 40px;
+      padding: 8px 20px;
+      margin-bottom: 16px;
+      text-align: center;
+      font-size: 18px;
+      border-left: 6px solid #6c5ce7;
+    }
+    .room-panel {
+      background: #1e2332;
+      border-radius: 18px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .flex-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .room-id-box {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .room-id {
+      background: #0f1219;
+      padding: 10px 18px;
+      border-radius: 40px;
+      font-family: monospace;
+      font-size: 24px;
+      letter-spacing: 2px;
+      color: #b7c9e2;
+      border: 1px solid #3d4b66;
+    }
+    .btn {
+      background: #3f4a6b;
+      border: none;
+      color: white;
+      padding: 10px 18px;
+      border-radius: 40px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: 0.2s;
+      border: 1px solid #5d6f94;
+    }
+    .btn-primary { background: #6c5ce7; border-color: #a29bfe; }
+    .btn-warning { background: #d63031; border-color: #ff7675; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:hover:not(:disabled) { filter: brightness(1.1); }
+    .users-section { margin-bottom: 20px; }
+    .user-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .user-badge {
+      background: #2f3a55;
+      padding: 6px 16px;
+      border-radius: 30px;
+      font-size: 14px;
+      border-left: 4px solid #6c5ce7;
+    }
+    .chat-area {
+      background: #1b212f;
+      border-radius: 18px;
+      padding: 16px;
+      height: 260px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+      border: 1px solid #33415c;
+    }
+    .message {
+      margin-bottom: 12px;
+      padding: 8px 14px;
+      background: #262e42;
+      border-radius: 18px;
+      max-width: 85%;
+      word-break: break-word;
+    }
+    .message.own { background: #3b305a; margin-left: auto; }
+    .message .meta { font-size: 11px; color: #a5b3d1; margin-bottom: 4px; }
+    .input-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .input-group input {
+      flex: 1;
+      background: #0f141f;
+      border: 1px solid #3d506e;
+      border-radius: 50px;
+      padding: 14px 18px;
+      color: white;
+      font-size: 15px;
+      outline: none;
+    }
+    .result-box {
+      background: #1f2a3c;
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 20px;
+      border: 1px solid #6c5ce7;
+    }
+    .vote-panel, .fake-panel {
+      background: #2a3448;
+      border-radius: 16px;
+      padding: 16px;
+      margin: 16px 0;
+    }
+    select {
+      background: #0f141f;
+      color: white;
+      border: 1px solid #3d506e;
+      border-radius: 30px;
+      padding: 8px 16px;
+      margin: 5px 0;
+      width: 100%;
+    }
+    .error-msg { color: #ff9f9f; margin: 8px 0; }
+    .footer-note { margin-top: 16px; font-size: 13px; color: #7f8da3; text-align: center; }
+    .hidden { display: none !important; }
+    .role-hint {
+      background: #3f2e5e;
+      padding: 10px 16px;
+      border-radius: 30px;
+      margin-bottom: 12px;
+      border: 1px solid #a29bfe;
+    }
+    .leaderboard-btn {
+      margin-left: auto;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div style="display: flex; align-items: center;">
+    <h2>🎭 匿名卧底·身份乱斗</h2>
+    <button class="btn leaderboard-btn" id="showLeaderboardBtn">🏆 排行榜</button>
+  </div>
+  <div class="badge" id="gameStatusLabel">等待开始</div>
+
+  <!-- 话题显示 -->
+  <div class="topic-banner" id="topicDisplay">✨ 话题加载中...</div>
+
+  <!-- 房间设置区 -->
+  <div class="room-panel" id="roomSetupPanel">
+    <div class="flex-row">
+      <button class="btn btn-primary" id="createRoomBtn">✨ 创建房间</button>
+      <input type="text" id="joinRoomInput" placeholder="房间号" maxlength="6" style="width:100px;">
+      <input type="text" id="userNameInput" placeholder="你的姓名" style="flex:1;">
+      <button class="btn" id="joinRoomBtn">加入</button>
+    </div>
+    <div class="room-id-box" id="roomInfoDisplay" style="display: none;">
+      <div class="room-id" id="roomIdDisplay">------</div>
+      <button class="btn" id="copyRoomBtn">📋 复制邀请码</button>
+    </div>
+    <div id="errorMsg" class="error-msg"></div>
+  </div>
+
+  <!-- 玩家列表 -->
+  <div class="users-section" id="usersPanel">
+    <div>👥 在线玩家 (<span id="userCount">0</span>)</div>
+    <div class="user-list" id="userList"></div>
+  </div>
+
+  <!-- 身份提示区 -->
+  <div id="roleHintPanel" class="role-hint hidden"></div>
+
+  <!-- 游戏控制 -->
+  <div style="display: flex; gap: 12px; margin-bottom: 18px;">
+    <button class="btn btn-primary" id="startGameBtn" disabled>🎲 开始游戏</button>
+    <button class="btn btn-warning" id="endGameBtn" disabled>⏹️ 结束游戏</button>
+  </div>
+
+  <!-- 聊天区 -->
+  <div class="chat-area" id="chatMessages">
+    <div style="color: #7f8da3; text-align: center; padding: 20px;">💬 消息会显示在这里</div>
+  </div>
+
+  <!-- 公开聊天 -->
+  <div class="input-group" id="publicChatPanel">
+    <input type="text" id="publicMessageInput" placeholder="公开聊天...">
+    <button class="btn btn-primary" id="sendPublicBtn">发送</button>
+  </div>
+
+  <!-- 匿名发言 -->
+  <div class="input-group hidden" id="anonymousChatPanel">
+    <input type="text" id="anonymousMessageInput" placeholder="匿名发言...">
+    <button class="btn btn-primary" id="sendAnonymousBtn">发送</button>
+  </div>
+
+  <!-- 沉默干扰者假消息面板 -->
+  <div class="fake-panel hidden" id="fakeMessagePanel">
+    <h4>🤫 沉默干扰者 - 发送假消息</h4>
+    <select id="fakeAsSelect">
+      <option value="匿名A">伪装成 匿名A</option>
+      <option value="匿名B">伪装成 匿名B</option>
+    </select>
+    <div class="input-group">
+      <input type="text" id="fakeMessageInput" placeholder="输入假消息...">
+      <button class="btn btn-primary" id="sendFakeBtn">发送</button>
+    </div>
+    <p id="fakeStatus"></p>
+  </div>
+
+  <!-- 投票区 -->
+  <div class="vote-panel hidden" id="votePanel">
+    <h4>🗳️ 猜猜他们是谁？</h4>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <div><label>匿名A 真实身份：</label><select id="voteSelectA"></select></div>
+      <div><label>匿名B 真实身份：</label><select id="voteSelectB"></select></div>
+    </div>
+    <button class="btn btn-primary" id="submitVoteBtn">提交投票</button>
+    <p id="voteStatus"></p>
+  </div>
+
+  <!-- 旁观提示 -->
+  <div id="spectatorNotice" style="text-align: center; margin: 10px 0; color: #b0bedd; display: none;">
+    🔇 你正在观战
+  </div>
+
+  <!-- 结果面板 -->
+  <div id="gameResultPanel" class="result-box hidden">
+    <h3>📋 游戏结果</h3>
+    <div id="resultSpeakers"></div>
+    <div id="resultVotes"></div>
+    <div><strong>本局积分变化：</strong></div>
+    <div id="resultScoreDelta"></div>
+    <div style="margin-top:14px;"><strong>对话记录：</strong></div>
+    <div id="resultMessages" style="max-height:150px; overflow-y:auto;"></div>
+    <button class="btn" id="closeResultBtn">关闭</button>
+  </div>
+
+  <!-- 排行榜弹窗 (简易) -->
+  <div id="leaderboardPanel" class="result-box hidden" style="position:fixed; top:20%; left:50%; transform:translateX(-50%); width:300px;">
+    <h3>🏆 积分榜</h3>
+    <ol id="leaderboardList"></ol>
+    <button class="btn" id="closeLeaderboardBtn">关闭</button>
+  </div>
+
+  <div class="footer-note">👤 <span id="myNameDisplay">未加入</span></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io();
+
+  // DOM 元素 (省略部分重复)
+  const topicDisplay = document.getElementById('topicDisplay');
+  const roleHintPanel = document.getElementById('roleHintPanel');
+  const fakeMessagePanel = document.getElementById('fakeMessagePanel');
+  const sendFakeBtn = document.getElementById('sendFakeBtn');
+  const fakeMessageInput = document.getElementById('fakeMessageInput');
+  const fakeAsSelect = document.getElementById('fakeAsSelect');
+  const fakeStatus = document.getElementById('fakeStatus');
+  const showLeaderboardBtn = document.getElementById('showLeaderboardBtn');
+  const leaderboardPanel = document.getElementById('leaderboardPanel');
+  const leaderboardList = document.getElementById('leaderboardList');
+  const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
+  const resultScoreDelta = document.getElementById('resultScoreDelta');
+  // ... 其他已存在的变量
+
+  let currentRoomId = null;
+  let currentUserName = '';
+  let isGameStarted = false;
+  let amISpeaker = false;
+  let specialRole = null;
+  let fakeAvailable = false;
+  let allUsers = [];
+  let hasVoted = false;
+
+  function showError(msg) { /* 同前 */ }
+  function renderUserList(users) { /* 同前 */ }
+  function addMessage(html) { /* 同前 */ }
+  function addPublicMessage(msg, isOwn) { /* 同前 */ }
+  function addAnonymousMessage(msg) { /* 同前 */ }
+  function addSystemMessage(text) { /* 同前 */ }
+  function clearChat() { /* 同前 */ }
+
+  function updateUIForGameState() {
+    // 更新按钮、面板显隐
+    // 处理假消息面板
+    if (isGameStarted && specialRole === '沉默干扰者' && fakeAvailable) {
+      fakeMessagePanel.classList.remove('hidden');
+    } else {
+      fakeMessagePanel.classList.add('hidden');
+    }
+    // 其他逻辑...
+  }
+
+  // Socket 事件
+  socket.on('roomCreated', roomId => { /* ... */ });
+  socket.on('joinSuccess', data => {
+    currentRoomId = data.roomId;
+    currentUserName = data.userName;
+    topicDisplay.textContent = `📌 话题：${data.topic.text} (${data.topic.type})`;
+    // 更新UI...
+  });
+
+  socket.on('newTopic', topic => {
+    topicDisplay.textContent = `📌 话题：${topic.text} (${topic.type})`;
+  });
+
+  socket.on('gameStarted', data => {
+    isGameStarted = true;
+    amISpeaker = data.isSpeaker;
+    specialRole = data.specialRole;
+    fakeAvailable = (specialRole === '沉默干扰者');
+    clearChat();
+    addSystemMessage(`🎲 游戏开始！话题：${data.topic.text}`);
+
+    let hint = '';
+    if (data.extraInfo?.type === 'observer') {
+      hint = `🔍 你是观察者，你看到 ${data.extraInfo.seenName} 的真实身份。`;
+    } else if (data.extraInfo?.type === 'coser') {
+      hint = `🎭 你是 coser！请模仿 ${data.extraInfo.targetName} 发言。`;
+    }
+    if (specialRole) {
+      hint += ` 你的身份：${specialRole}`;
+    }
+    roleHintPanel.textContent = hint || (amISpeaker ? `你是 ${data.anonymousName}` : '你是观战者');
+    roleHintPanel.classList.remove('hidden');
+
+    // 填充投票下拉
+    if (!amISpeaker) {
+      populateVoteSelects(data.allUsers);
+    }
+    updateUIForGameState();
+  });
+
+  socket.on('fakeUsed', () => {
+    fakeAvailable = false;
+    fakeStatus.textContent = '假消息已使用';
+    updateUIForGameState();
+  });
+
+  socket.on('gameEnded', data => {
+    isGameStarted = false;
+    // 显示结果，包括积分变化
+    resultSpeakers.innerHTML = `发言者：${data.speakers.map(s => `${s.anonymousName}→${s.realName}`).join('，')}`;
+    // 投票结果...
+    let scoreHtml = '<ul>';
+    Object.entries(data.scoreDelta).forEach(([name, delta]) => {
+      if (delta > 0) scoreHtml += `<li>${name} +${delta}</li>`;
+    });
+    scoreHtml += '</ul>';
+    resultScoreDelta.innerHTML = scoreHtml;
+    // 对话记录...
+    gameResultPanel.classList.remove('hidden');
+    roleHintPanel.classList.add('hidden');
+    updateUIForGameState();
+  });
+
+  // 排行榜
+  showLeaderboardBtn.addEventListener('click', () => {
+    socket.emit('getLeaderboard');
+  });
+  socket.on('leaderboard', list => {
+    leaderboardList.innerHTML = list.map(p => `<li>${p.name} : ${p.score}分</li>`).join('');
+    leaderboardPanel.classList.remove('hidden');
+  });
+  closeLeaderboardBtn.addEventListener('click', () => {
+    leaderboardPanel.classList.add('hidden');
+  });
+
+  // 发送假消息
+  sendFakeBtn.addEventListener('click', () => {
+    const text = fakeMessageInput.value.trim();
+    if (!text) return;
+    socket.emit('fakeMessage', { anonymousAs: fakeAsSelect.value, text });
+    fakeMessageInput.value = '';
+  });
+
+  // 其他事件绑定参考之前...
+</script>
+</body>
+</html>
