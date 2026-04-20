@@ -168,12 +168,26 @@
       justify-content: space-between;
       margin-bottom: 4px;
     }
-    .role-label {
-      color: #b0bedd;
+    .role-label { color: #b0bedd; }
+    .role-value { font-weight: bold; color: #fff; }
+    .progress-container {
+      margin: 10px 0;
+      background: #1e2332;
+      border-radius: 20px;
+      padding: 8px 16px;
     }
-    .role-value {
-      font-weight: bold;
-      color: #fff;
+    .progress-bar {
+      height: 10px;
+      background: #3d506e;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 5px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #6c5ce7;
+      width: 0%;
+      transition: width 0.3s;
     }
   </style>
 </head>
@@ -219,6 +233,17 @@
   <div style="display: flex; gap: 12px; margin-bottom: 18px;">
     <button class="btn btn-primary" id="startGameBtn" disabled>🎲 开始游戏</button>
     <button class="btn btn-warning" id="endGameBtn" disabled>⏹️ 结束游戏</button>
+  </div>
+
+  <!-- 投票进度条（游戏中显示） -->
+  <div id="voteProgressPanel" class="progress-container hidden">
+    <div style="display: flex; justify-content: space-between;">
+      <span>🗳️ 投票进度</span>
+      <span id="voteProgressText">0 / 0</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="voteProgressFill" style="width:0%"></div>
+    </div>
   </div>
 
   <!-- 聊天区 -->
@@ -294,7 +319,7 @@
 <script>
   const socket = io();
 
-  // DOM 元素 (同前)
+  // DOM 元素
   const createRoomBtn = document.getElementById('createRoomBtn');
   const joinRoomInput = document.getElementById('joinRoomInput');
   const userNameInput = document.getElementById('userNameInput');
@@ -343,6 +368,9 @@
   const leaderboardPanel = document.getElementById('leaderboardPanel');
   const leaderboardList = document.getElementById('leaderboardList');
   const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
+  const voteProgressPanel = document.getElementById('voteProgressPanel');
+  const voteProgressText = document.getElementById('voteProgressText');
+  const voteProgressFill = document.getElementById('voteProgressFill');
 
   let currentRoomId = null;
   let currentUserName = '';
@@ -397,6 +425,12 @@
     voteSelectB.innerHTML = options;
   }
 
+  function updateVoteProgress(voted, total) {
+    voteProgressText.textContent = `${voted} / ${total}`;
+    const percent = total > 0 ? (voted / total) * 100 : 0;
+    voteProgressFill.style.width = percent + '%';
+  }
+
   function updateUIForGameState() {
     if (isGameStarted) {
       gameStatusLabel.textContent = '🎮 游戏中';
@@ -404,6 +438,7 @@
       endGameBtn.disabled = false;
       usersPanel.classList.add('hidden');
       publicChatPanel.classList.add('hidden');
+      voteProgressPanel.classList.remove('hidden');
       if (amISpeaker) {
         anonymousChatPanel.classList.remove('hidden');
         spectatorNotice.style.display = 'none';
@@ -431,6 +466,7 @@
       publicChatPanel.classList.remove('hidden');
       anonymousChatPanel.classList.add('hidden');
       fakeMessagePanel.classList.add('hidden');
+      voteProgressPanel.classList.add('hidden');
       spectatorNotice.style.display = 'none';
       votePanel.classList.add('hidden');
       document.getElementById('roomSetupPanel').style.opacity = '1';
@@ -496,7 +532,6 @@
     clearChat();
     addSystemMessage(`🎲 游戏开始！话题：${data.topic.text}`);
 
-    // 更新身份提示面板（分离显示）
     displayIsSpeaker.textContent = amISpeaker ? `是 (${data.anonymousName || ''})` : '否';
     displaySpecialRole.textContent = specialRole || '无';
 
@@ -512,7 +547,15 @@
     roleHintPanel.classList.remove('hidden');
 
     if (!amISpeaker) populateVoteSelects(data.allUsers);
+    
+    // 初始化投票进度
+    updateVoteProgress(0, data.spectatorCount);
+    
     updateUIForGameState();
+  });
+
+  socket.on('voteProgress', ({ voted, total }) => {
+    updateVoteProgress(voted, total);
   });
 
   socket.on('gameStateChanged', (state) => {
@@ -520,6 +563,7 @@
     if (!isGameStarted) {
       amISpeaker = false;
       roleHintPanel.classList.add('hidden');
+      voteProgressPanel.classList.add('hidden');
     }
     updateUIForGameState();
   });
