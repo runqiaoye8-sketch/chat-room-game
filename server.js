@@ -38,16 +38,21 @@ function getRandomTopic() {
   return TOPICS[Math.floor(Math.random() * TOPICS.length)];
 }
 
+// 分配不重复的特殊身份 (1~4个)
 function assignSpecialRoles(users) {
   const roles = [];
-  const count = Math.floor(Math.random() * 4) + 1;
-  const shuffled = [...users].sort(() => 0.5 - Math.random());
-  const selected = shuffled.slice(0, Math.min(count, users.length));
-
-  selected.forEach(user => {
-    const rolePool = [SPECIAL_ROLES.OBSERVER, SPECIAL_ROLES.FAKER, SPECIAL_ROLES.JUDGE];
-    const role = rolePool[Math.floor(Math.random() * rolePool.length)];
-    roles.push({ userId: user.id, role });
+  const count = Math.floor(Math.random() * 4) + 1; // 1~4
+  const shuffledUsers = [...users].sort(() => 0.5 - Math.random());
+  const selectedUsers = shuffledUsers.slice(0, Math.min(count, users.length));
+  
+  // 可用身份池（每次从所有身份中随机抽取，确保不重复）
+  const availableRoles = [SPECIAL_ROLES.OBSERVER, SPECIAL_ROLES.FAKER, SPECIAL_ROLES.JUDGE];
+  const shuffledRoles = [...availableRoles].sort(() => 0.5 - Math.random());
+  
+  selectedUsers.forEach((user, index) => {
+    if (index < shuffledRoles.length) {
+      roles.push({ userId: user.id, role: shuffledRoles[index] });
+    }
   });
   return roles;
 }
@@ -135,6 +140,7 @@ io.on("connection", (socket) => {
 
     room.gameStarted = true;
 
+    // 随机选2个发言者
     const shuffled = [...room.users].sort(() => 0.5 - Math.random());
     const speakers = shuffled.slice(0, 2);
     room.speakers = speakers.map(s => s.socketId);
@@ -143,12 +149,14 @@ io.on("connection", (socket) => {
       [speakers[1].socketId]: "匿名B"
     };
 
+    // 分配不重复特殊身份
     room.specialRoles = assignSpecialRoles(room.users);
     room.fakeMessageUsed = {};
     room.specialRoles.forEach(r => {
       if (r.role === SPECIAL_ROLES.FAKER) room.fakeMessageUsed[r.userId] = false;
     });
 
+    // 随机决定coser (20%概率附加给其中一个发言者)
     room.coserTarget = null;
     if (Math.random() < 0.2 && room.speakers.length > 0) {
       const coserSpeaker = speakers[Math.floor(Math.random() * speakers.length)];
@@ -162,19 +170,34 @@ io.on("connection", (socket) => {
       }
     }
 
+    // 通知每个玩家
     room.users.forEach(user => {
       const special = room.specialRoles.find(r => r.userId === user.id);
       const isSpeaker = room.speakers.includes(user.socketId);
       const anonName = isSpeaker ? room.anonymousMap[user.socketId] : null;
       let extraInfo = null;
 
+      // 观察者：看到随机一个匿名者的真实姓名，但不告知是A还是B
       if (special?.role === SPECIAL_ROLES.OBSERVER) {
-        const others = room.users.filter(u => u.id !== user.id);
-        const target = others[Math.floor(Math.random() * others.length)];
-        extraInfo = { type: "observer", seenName: target.name };
+        // 随机选一个匿名者
+        const randomSpeakerSocket = room.speakers[Math.floor(Math.random() * room.speakers.length)];
+        const targetSpeaker = room.users.find(u => u.socketId === randomSpeakerSocket);
+        if (targetSpeaker) {
+          extraInfo = { 
+            type: "observer", 
+            seenName: targetSpeaker.name,
+            anonymousHint: "你观察到其中一位匿名者的真实身份，但不知道是匿名A还是匿名B。"
+          };
+        }
       }
+      
+      // coser 提示
       if (isSpeaker && room.coserTarget?.speakerSocketId === user.socketId) {
-        extraInfo = { type: "coser", targetName: room.coserTarget.targetName };
+        extraInfo = { 
+          type: "coser", 
+          targetName: room.coserTarget.targetName,
+          hint: `请尽量模仿 ${room.coserTarget.targetName} 的说话风格！`
+        };
       }
 
       io.to(user.socketId).emit("gameStarted", {
