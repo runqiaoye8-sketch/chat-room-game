@@ -38,14 +38,12 @@ function getRandomTopic() {
   return TOPICS[Math.floor(Math.random() * TOPICS.length)];
 }
 
-// 分配不重复的特殊身份 (1~4个)
 function assignSpecialRoles(users) {
   const roles = [];
-  const count = Math.floor(Math.random() * 4) + 1; // 1~4
+  const count = Math.floor(Math.random() * 4) + 1;
   const shuffledUsers = [...users].sort(() => 0.5 - Math.random());
   const selectedUsers = shuffledUsers.slice(0, Math.min(count, users.length));
   
-  // 可用身份池（每次从所有身份中随机抽取，确保不重复）
   const availableRoles = [SPECIAL_ROLES.OBSERVER, SPECIAL_ROLES.FAKER, SPECIAL_ROLES.JUDGE];
   const shuffledRoles = [...availableRoles].sort(() => 0.5 - Math.random());
   
@@ -55,6 +53,105 @@ function assignSpecialRoles(users) {
     }
   });
   return roles;
+}
+
+// 结束游戏并结算（抽离为函数）
+function endGameAndSettle(roomId, io) {
+  const room = rooms[roomId];
+  if (!room || !room.gameStarted) return;
+
+  const speakerA = room.users.find(u => u.socketId === room.speakers[0]);
+  const speakerB = room.users.find(u => u.socketId === room.speakers[1]);
+  const speakerDetails = [
+    { anonymousName: "匿名A", realName: speakerA?.name || "已离开", socketId: room.speakers[0] },
+    { anonymousName: "匿名B", realName: speakerB?.name || "已离开", socketId: room.speakers[1] }
+  ];
+
+  const voteEntries = Object.entries(room.votes);
+  const voteResults = [];
+  let correctA = 0, correctB = 0;
+  const scoreDelta = {};
+  room.users.forEach(u => { scoreDelta[u.name] = 0; });
+
+  voteEntries.forEach(([voterId, vote]) => {
+    const voter = room.users.find(u => u.socketId === voterId);
+    if (!voter) return;
+    const isCorrectA = (vote.guessA === speakerDetails[0].realName);
+    const isCorrectB = (vote.guessB === speakerDetails[1].realName);
+    const weight = vote.weight || 1;
+
+    if (isCorrectA) correctA += weight;
+    if (isCorrectB) correctB += weight;
+
+    voteResults.push({
+      voterName: voter.name,
+      guessA: vote.guessA,
+      guessB: vote.guessB,
+      correctA: isCorrectA,
+      correctB: isCorrectB,
+      weight
+    });
+
+    const special = room.specialRoles.find(r => r.userId === voter.id);
+    if (special?.role === SPECIAL_ROLES.OBSERVER && (isCorrectA || isCorrectB)) {
+      scoreDelta[voter.name] += 2;
+    }
+  });
+
+  const speakerAReal = speakerDetails[0].realName;
+  const speakerBReal = speakerDetails[1].realName;
+  const guessedA = voteEntries.some(([_, v]) => v.guessA === speakerAReal);
+  const guessedB = voteEntries.some(([_, v]) => v.guessB === speakerBReal);
+  if (!guessedA && speakerA) scoreDelta[speakerA.name] += 2;
+  if (!guessedB && speakerB) scoreDelta[speakerB.name] += 2;
+
+  if (room.coserTarget) {
+    const coserSpeaker = room.users.find(u => u.socketId === room.coserTarget.speakerSocketId);
+    if (coserSpeaker) {
+      const targetName = room.coserTarget.targetName;
+      let misleadCount = 0;
+      voteEntries.forEach(([_, vote]) => {
+        if (vote.guessA === targetName || vote.guessB === targetName) misleadCount++;
+      });
+      scoreDelta[coserSpeaker.name] += misleadCount;
+    }
+  }
+
+  room.specialRoles.filter(r => r.role === SPECIAL_ROLES.FAKER).forEach(r => {
+    const faker = room.users.find(u => u.id === r.userId);
+    if (faker && room.fakeMessageUsed[r.userId] && (!guessedA || !guessedB)) {
+      scoreDelta[faker.name] += 2;
+    }
+  });
+
+  Object.entries(scoreDelta).forEach(([name, delta]) => {
+    if (delta > 0) playerScores[name] = (playerScores[name] || 0) + delta;
+  });
+
+  io.to(roomId).emit("gameEnded", {
+    speakers: speakerDetails,
+    messages: room.messages,
+    votes: voteResults,
+    totalVotes: voteEntries.length,
+    correctCountA: correctA,
+    correctCountB: correctB,
+    scoreDelta
+  });
+
+  // 重置房间
+  room.gameStarted = false;
+  room.speakers = [];
+  room.anonymousMap = {};
+  room.messages = [];
+  room.votes = {};
+  room.specialRoles = [];
+  room.coserTarget = null;
+  room.fakeMessageUsed = {};
+  room.topic = getRandomTopic();
+
+  io.to(roomId).emit("gameStateChanged", { gameStarted: false });
+  io.to(roomId).emit("updateUsers", room.users.map(u => ({ id: u.id, name: u.name })));
+  io.to(roomId).emit("newTopic", room.topic);
 }
 
 io.on("connection", (socket) => {
@@ -140,7 +237,6 @@ io.on("connection", (socket) => {
 
     room.gameStarted = true;
 
-    // 随机选2个发言者
     const shuffled = [...room.users].sort(() => 0.5 - Math.random());
     const speakers = shuffled.slice(0, 2);
     room.speakers = speakers.map(s => s.socketId);
@@ -149,14 +245,12 @@ io.on("connection", (socket) => {
       [speakers[1].socketId]: "匿名B"
     };
 
-    // 分配不重复特殊身份
     room.specialRoles = assignSpecialRoles(room.users);
     room.fakeMessageUsed = {};
     room.specialRoles.forEach(r => {
       if (r.role === SPECIAL_ROLES.FAKER) room.fakeMessageUsed[r.userId] = false;
     });
 
-    // 随机决定coser (20%概率附加给其中一个发言者)
     room.coserTarget = null;
     if (Math.random() < 0.2 && room.speakers.length > 0) {
       const coserSpeaker = speakers[Math.floor(Math.random() * speakers.length)];
@@ -170,16 +264,16 @@ io.on("connection", (socket) => {
       }
     }
 
-    // 通知每个玩家
+    // 计算非发言者人数，用于投票计数
+    const spectatorCount = room.users.filter(u => !room.speakers.includes(u.socketId)).length;
+
     room.users.forEach(user => {
       const special = room.specialRoles.find(r => r.userId === user.id);
       const isSpeaker = room.speakers.includes(user.socketId);
       const anonName = isSpeaker ? room.anonymousMap[user.socketId] : null;
       let extraInfo = null;
 
-      // 观察者：看到随机一个匿名者的真实姓名，但不告知是A还是B
       if (special?.role === SPECIAL_ROLES.OBSERVER) {
-        // 随机选一个匿名者
         const randomSpeakerSocket = room.speakers[Math.floor(Math.random() * room.speakers.length)];
         const targetSpeaker = room.users.find(u => u.socketId === randomSpeakerSocket);
         if (targetSpeaker) {
@@ -191,7 +285,6 @@ io.on("connection", (socket) => {
         }
       }
       
-      // coser 提示
       if (isSpeaker && room.coserTarget?.speakerSocketId === user.socketId) {
         extraInfo = { 
           type: "coser", 
@@ -210,13 +303,16 @@ io.on("connection", (socket) => {
           anonymousName: room.anonymousMap[sockId]
         })),
         allUsers: room.users.map(u => ({ id: u.id, name: u.name })),
-        topic: room.topic
+        topic: room.topic,
+        spectatorCount
       });
     });
 
     room.messages = [];
     room.votes = {};
     io.to(socket.roomId).emit("gameStateChanged", { gameStarted: true });
+    // 广播初始投票进度
+    io.to(socket.roomId).emit("voteProgress", { voted: 0, total: spectatorCount });
   });
 
   socket.on("anonymousMessage", (msg) => {
@@ -263,103 +359,25 @@ io.on("connection", (socket) => {
 
     room.votes[socket.id] = { guessA: guessForA, guessB: guessForB, weight };
     socket.emit("voteConfirmed");
+
+    // 计算投票进度
+    const spectators = room.users.filter(u => !room.speakers.includes(u.socketId));
+    const votedCount = Object.keys(room.votes).length;
+    const totalSpectators = spectators.length;
+    
+    io.to(socket.roomId).emit("voteProgress", { voted: votedCount, total: totalSpectators });
+
+    // 检查是否所有观战者都已投票
+    if (votedCount === totalSpectators && totalSpectators > 0) {
+      // 自动结束游戏
+      endGameAndSettle(socket.roomId, io);
+    }
   });
 
   socket.on("endGame", () => {
     const room = rooms[socket.roomId];
     if (!room?.gameStarted) return;
-
-    const speakerA = room.users.find(u => u.socketId === room.speakers[0]);
-    const speakerB = room.users.find(u => u.socketId === room.speakers[1]);
-    const speakerDetails = [
-      { anonymousName: "匿名A", realName: speakerA?.name || "已离开", socketId: room.speakers[0] },
-      { anonymousName: "匿名B", realName: speakerB?.name || "已离开", socketId: room.speakers[1] }
-    ];
-
-    const voteEntries = Object.entries(room.votes);
-    const voteResults = [];
-    let correctA = 0, correctB = 0;
-    const scoreDelta = {};
-    room.users.forEach(u => { scoreDelta[u.name] = 0; });
-
-    voteEntries.forEach(([voterId, vote]) => {
-      const voter = room.users.find(u => u.socketId === voterId);
-      if (!voter) return;
-      const isCorrectA = (vote.guessA === speakerDetails[0].realName);
-      const isCorrectB = (vote.guessB === speakerDetails[1].realName);
-      const weight = vote.weight || 1;
-
-      if (isCorrectA) correctA += weight;
-      if (isCorrectB) correctB += weight;
-
-      voteResults.push({
-        voterName: voter.name,
-        guessA: vote.guessA,
-        guessB: vote.guessB,
-        correctA: isCorrectA,
-        correctB: isCorrectB,
-        weight
-      });
-
-      const special = room.specialRoles.find(r => r.userId === voter.id);
-      if (special?.role === SPECIAL_ROLES.OBSERVER && (isCorrectA || isCorrectB)) {
-        scoreDelta[voter.name] += 2;
-      }
-    });
-
-    const speakerAReal = speakerDetails[0].realName;
-    const speakerBReal = speakerDetails[1].realName;
-    const guessedA = voteEntries.some(([_, v]) => v.guessA === speakerAReal);
-    const guessedB = voteEntries.some(([_, v]) => v.guessB === speakerBReal);
-    if (!guessedA && speakerA) scoreDelta[speakerA.name] += 2;
-    if (!guessedB && speakerB) scoreDelta[speakerB.name] += 2;
-
-    if (room.coserTarget) {
-      const coserSpeaker = room.users.find(u => u.socketId === room.coserTarget.speakerSocketId);
-      if (coserSpeaker) {
-        const targetName = room.coserTarget.targetName;
-        let misleadCount = 0;
-        voteEntries.forEach(([_, vote]) => {
-          if (vote.guessA === targetName || vote.guessB === targetName) misleadCount++;
-        });
-        scoreDelta[coserSpeaker.name] += misleadCount;
-      }
-    }
-
-    room.specialRoles.filter(r => r.role === SPECIAL_ROLES.FAKER).forEach(r => {
-      const faker = room.users.find(u => u.id === r.userId);
-      if (faker && room.fakeMessageUsed[r.userId] && (!guessedA || !guessedB)) {
-        scoreDelta[faker.name] += 2;
-      }
-    });
-
-    Object.entries(scoreDelta).forEach(([name, delta]) => {
-      if (delta > 0) playerScores[name] = (playerScores[name] || 0) + delta;
-    });
-
-    io.to(socket.roomId).emit("gameEnded", {
-      speakers: speakerDetails,
-      messages: room.messages,
-      votes: voteResults,
-      totalVotes: voteEntries.length,
-      correctCountA: correctA,
-      correctCountB: correctB,
-      scoreDelta
-    });
-
-    room.gameStarted = false;
-    room.speakers = [];
-    room.anonymousMap = {};
-    room.messages = [];
-    room.votes = {};
-    room.specialRoles = [];
-    room.coserTarget = null;
-    room.fakeMessageUsed = {};
-    room.topic = getRandomTopic();
-
-    io.to(socket.roomId).emit("gameStateChanged", { gameStarted: false });
-    io.to(socket.roomId).emit("updateUsers", room.users.map(u => ({ id: u.id, name: u.name })));
-    io.to(socket.roomId).emit("newTopic", room.topic);
+    endGameAndSettle(socket.roomId, io);
   });
 
   socket.on("getLeaderboard", () => {
@@ -378,6 +396,14 @@ io.on("connection", (socket) => {
       const user = room.users[idx];
       room.users.splice(idx, 1);
       io.to(socket.roomId).emit("updateUsers", room.users.map(u => ({ id: u.id, name: u.name })));
+      if (room.gameStarted) {
+        // 有人离开后重新计算投票进度
+        const spectators = room.users.filter(u => !room.speakers.includes(u.socketId));
+        const votedCount = Object.keys(room.votes).filter(voterId => 
+          spectators.some(s => s.socketId === voterId)
+        ).length;
+        io.to(socket.roomId).emit("voteProgress", { voted: votedCount, total: spectators.length });
+      }
       if (room.users.length === 0) delete rooms[socket.roomId];
       console.log(`${user.name} 离开房间`);
     }
