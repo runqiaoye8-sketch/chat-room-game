@@ -30,6 +30,7 @@
       padding: 4px 12px;
       border-radius: 30px;
       font-size: 14px;
+      display: inline-block;
     }
     .topic-banner {
       background: #2a3448;
@@ -162,20 +163,16 @@
       margin-bottom: 12px;
       border: 1px solid #a29bfe;
     }
-    .leaderboard-btn {
-      margin-left: auto;
-    }
   </style>
 </head>
 <body>
 <div class="container">
-  <div style="display: flex; align-items: center;">
+  <div style="display: flex; align-items: center; justify-content: space-between;">
     <h2>🎭 匿名卧底·身份乱斗</h2>
-    <button class="btn leaderboard-btn" id="showLeaderboardBtn">🏆 排行榜</button>
+    <button class="btn" id="showLeaderboardBtn">🏆 排行榜</button>
   </div>
   <div class="badge" id="gameStatusLabel">等待开始</div>
 
-  <!-- 话题显示 -->
   <div class="topic-banner" id="topicDisplay">✨ 话题加载中...</div>
 
   <!-- 房间设置区 -->
@@ -267,8 +264,8 @@
     <button class="btn" id="closeResultBtn">关闭</button>
   </div>
 
-  <!-- 排行榜弹窗 (简易) -->
-  <div id="leaderboardPanel" class="result-box hidden" style="position:fixed; top:20%; left:50%; transform:translateX(-50%); width:300px;">
+  <!-- 排行榜弹窗 -->
+  <div id="leaderboardPanel" class="result-box hidden" style="position:fixed; top:20%; left:50%; transform:translateX(-50%); width:300px; z-index:100;">
     <h3>🏆 积分榜</h3>
     <ol id="leaderboardList"></ol>
     <button class="btn" id="closeLeaderboardBtn">关闭</button>
@@ -281,20 +278,52 @@
 <script>
   const socket = io();
 
-  // DOM 元素 (省略部分重复)
-  const topicDisplay = document.getElementById('topicDisplay');
-  const roleHintPanel = document.getElementById('roleHintPanel');
+  // DOM 元素
+  const createRoomBtn = document.getElementById('createRoomBtn');
+  const joinRoomInput = document.getElementById('joinRoomInput');
+  const userNameInput = document.getElementById('userNameInput');
+  const joinRoomBtn = document.getElementById('joinRoomBtn');
+  const roomInfoDisplay = document.getElementById('roomInfoDisplay');
+  const roomIdDisplay = document.getElementById('roomIdDisplay');
+  const copyRoomBtn = document.getElementById('copyRoomBtn');
+  const startGameBtn = document.getElementById('startGameBtn');
+  const endGameBtn = document.getElementById('endGameBtn');
+  const userList = document.getElementById('userList');
+  const userCountSpan = document.getElementById('userCount');
+  const chatMessages = document.getElementById('chatMessages');
+  const publicChatPanel = document.getElementById('publicChatPanel');
+  const publicMessageInput = document.getElementById('publicMessageInput');
+  const sendPublicBtn = document.getElementById('sendPublicBtn');
+  const anonymousChatPanel = document.getElementById('anonymousChatPanel');
+  const anonymousMessageInput = document.getElementById('anonymousMessageInput');
+  const sendAnonymousBtn = document.getElementById('sendAnonymousBtn');
   const fakeMessagePanel = document.getElementById('fakeMessagePanel');
   const sendFakeBtn = document.getElementById('sendFakeBtn');
   const fakeMessageInput = document.getElementById('fakeMessageInput');
   const fakeAsSelect = document.getElementById('fakeAsSelect');
   const fakeStatus = document.getElementById('fakeStatus');
+  const votePanel = document.getElementById('votePanel');
+  const voteSelectA = document.getElementById('voteSelectA');
+  const voteSelectB = document.getElementById('voteSelectB');
+  const submitVoteBtn = document.getElementById('submitVoteBtn');
+  const voteStatus = document.getElementById('voteStatus');
+  const spectatorNotice = document.getElementById('spectatorNotice');
+  const gameResultPanel = document.getElementById('gameResultPanel');
+  const resultSpeakers = document.getElementById('resultSpeakers');
+  const resultVotes = document.getElementById('resultVotes');
+  const resultScoreDelta = document.getElementById('resultScoreDelta');
+  const resultMessages = document.getElementById('resultMessages');
+  const closeResultBtn = document.getElementById('closeResultBtn');
+  const errorMsgDiv = document.getElementById('errorMsg');
+  const gameStatusLabel = document.getElementById('gameStatusLabel');
+  const myNameDisplay = document.getElementById('myNameDisplay');
+  const usersPanel = document.getElementById('usersPanel');
+  const roleHintPanel = document.getElementById('roleHintPanel');
+  const topicDisplay = document.getElementById('topicDisplay');
   const showLeaderboardBtn = document.getElementById('showLeaderboardBtn');
   const leaderboardPanel = document.getElementById('leaderboardPanel');
   const leaderboardList = document.getElementById('leaderboardList');
   const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
-  const resultScoreDelta = document.getElementById('resultScoreDelta');
-  // ... 其他已存在的变量
 
   let currentRoomId = null;
   let currentUserName = '';
@@ -305,39 +334,142 @@
   let allUsers = [];
   let hasVoted = false;
 
-  function showError(msg) { /* 同前 */ }
-  function renderUserList(users) { /* 同前 */ }
-  function addMessage(html) { /* 同前 */ }
-  function addPublicMessage(msg, isOwn) { /* 同前 */ }
-  function addAnonymousMessage(msg) { /* 同前 */ }
-  function addSystemMessage(text) { /* 同前 */ }
-  function clearChat() { /* 同前 */ }
+  function showError(msg) {
+    errorMsgDiv.textContent = msg;
+    setTimeout(() => errorMsgDiv.textContent = '', 4000);
+  }
+
+  function renderUserList(users) {
+    allUsers = users;
+    userCountSpan.textContent = users.length;
+    userList.innerHTML = users.map(u => 
+      `<div class="user-badge">${u.name} ${u.id === socket.id ? '(你)' : ''}</div>`
+    ).join('');
+    if (!isGameStarted) startGameBtn.disabled = users.length < 2;
+  }
+
+  function addMessage(html) {
+    chatMessages.insertAdjacentHTML('beforeend', html);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function addPublicMessage(msg, isOwn) {
+    const time = new Date(msg.timestamp).toLocaleTimeString().slice(0,5);
+    const cls = isOwn ? 'own' : '';
+    addMessage(`<div class="message ${cls}"><div class="meta">${msg.senderName} · ${time}</div><div>${msg.text}</div></div>`);
+  }
+
+  function addAnonymousMessage(msg) {
+    const time = new Date(msg.timestamp).toLocaleTimeString().slice(0,5);
+    addMessage(`<div class="message"><div class="meta">${msg.anonymousName} · ${time}</div><div>${msg.text}</div></div>`);
+  }
+
+  function addSystemMessage(text) {
+    addMessage(`<div class="message" style="background:#2e3b4e; text-align:center; max-width:100%;"><div class="meta">🔔 系统</div><div>${text}</div></div>`);
+  }
+
+  function clearChat() {
+    chatMessages.innerHTML = '';
+  }
+
+  function populateVoteSelects(users) {
+    const options = users.map(u => `<option value="${u.name}">${u.name}</option>`).join('');
+    voteSelectA.innerHTML = options;
+    voteSelectB.innerHTML = options;
+  }
 
   function updateUIForGameState() {
-    // 更新按钮、面板显隐
-    // 处理假消息面板
-    if (isGameStarted && specialRole === '沉默干扰者' && fakeAvailable) {
-      fakeMessagePanel.classList.remove('hidden');
+    if (isGameStarted) {
+      gameStatusLabel.textContent = '🎮 游戏中';
+      startGameBtn.disabled = true;
+      endGameBtn.disabled = false;
+      usersPanel.classList.add('hidden');
+      publicChatPanel.classList.add('hidden');
+      if (amISpeaker) {
+        anonymousChatPanel.classList.remove('hidden');
+        spectatorNotice.style.display = 'none';
+        votePanel.classList.add('hidden');
+      } else {
+        anonymousChatPanel.classList.add('hidden');
+        spectatorNotice.style.display = 'block';
+        votePanel.classList.remove('hidden');
+      }
+      if (specialRole === '沉默干扰者' && fakeAvailable) {
+        fakeMessagePanel.classList.remove('hidden');
+      } else {
+        fakeMessagePanel.classList.add('hidden');
+      }
+      document.getElementById('roomSetupPanel').style.opacity = '0.7';
+      createRoomBtn.disabled = true;
+      joinRoomBtn.disabled = true;
+      joinRoomInput.disabled = true;
+      userNameInput.disabled = true;
     } else {
+      gameStatusLabel.textContent = '⏳ 等待开始';
+      startGameBtn.disabled = allUsers.length < 2;
+      endGameBtn.disabled = true;
+      usersPanel.classList.remove('hidden');
+      publicChatPanel.classList.remove('hidden');
+      anonymousChatPanel.classList.add('hidden');
       fakeMessagePanel.classList.add('hidden');
+      spectatorNotice.style.display = 'none';
+      votePanel.classList.add('hidden');
+      document.getElementById('roomSetupPanel').style.opacity = '1';
+      createRoomBtn.disabled = !!currentRoomId;
+      joinRoomBtn.disabled = false;
+      joinRoomInput.disabled = false;
+      userNameInput.disabled = false;
+      hasVoted = false;
+      submitVoteBtn.disabled = false;
+      voteStatus.textContent = '';
+      fakeStatus.textContent = '';
     }
-    // 其他逻辑...
   }
 
   // Socket 事件
-  socket.on('roomCreated', roomId => { /* ... */ });
-  socket.on('joinSuccess', data => {
-    currentRoomId = data.roomId;
-    currentUserName = data.userName;
-    topicDisplay.textContent = `📌 话题：${data.topic.text} (${data.topic.type})`;
-    // 更新UI...
+  socket.on('roomCreated', (roomId) => {
+    currentRoomId = roomId;
+    roomIdDisplay.textContent = roomId;
+    roomInfoDisplay.style.display = 'flex';
+    addSystemMessage(`房间已创建，房间号: ${roomId}`);
+    const name = userNameInput.value.trim();
+    if (name) {
+      socket.emit('joinRoom', { roomId, userName: name });
+    } else {
+      showError('请输入姓名');
+    }
   });
 
-  socket.on('newTopic', topic => {
+  socket.on('joinSuccess', (data) => {
+    currentRoomId = data.roomId;
+    currentUserName = data.userName;
+    myNameDisplay.textContent = currentUserName;
+    roomIdDisplay.textContent = currentRoomId;
+    roomInfoDisplay.style.display = 'flex';
+    renderUserList(data.users);
+    topicDisplay.textContent = `📌 话题：${data.topic.text} (${data.topic.type})`;
+    addSystemMessage(`欢迎 ${currentUserName} 加入房间`);
+    updateUIForGameState();
+  });
+
+  socket.on('updateUsers', (users) => {
+    renderUserList(users);
+    if (isGameStarted && !amISpeaker) populateVoteSelects(users);
+  });
+
+  socket.on('preGameHistory', (messages) => {
+    messages.forEach(msg => addPublicMessage(msg, msg.senderId === socket.id));
+  });
+
+  socket.on('publicMessage', (msg) => {
+    addPublicMessage(msg, msg.senderId === socket.id);
+  });
+
+  socket.on('newTopic', (topic) => {
     topicDisplay.textContent = `📌 话题：${topic.text} (${topic.type})`;
   });
 
-  socket.on('gameStarted', data => {
+  socket.on('gameStarted', (data) => {
     isGameStarted = true;
     amISpeaker = data.isSpeaker;
     specialRole = data.specialRole;
@@ -357,12 +489,20 @@
     roleHintPanel.textContent = hint || (amISpeaker ? `你是 ${data.anonymousName}` : '你是观战者');
     roleHintPanel.classList.remove('hidden');
 
-    // 填充投票下拉
-    if (!amISpeaker) {
-      populateVoteSelects(data.allUsers);
+    if (!amISpeaker) populateVoteSelects(data.allUsers);
+    updateUIForGameState();
+  });
+
+  socket.on('gameStateChanged', (state) => {
+    isGameStarted = state.gameStarted;
+    if (!isGameStarted) {
+      amISpeaker = false;
+      roleHintPanel.classList.add('hidden');
     }
     updateUIForGameState();
   });
+
+  socket.on('anonymousMessage', (msg) => addAnonymousMessage(msg));
 
   socket.on('fakeUsed', () => {
     fakeAvailable = false;
@@ -370,36 +510,95 @@
     updateUIForGameState();
   });
 
-  socket.on('gameEnded', data => {
+  socket.on('voteConfirmed', () => {
+    hasVoted = true;
+    voteStatus.textContent = '✅ 投票已提交';
+    submitVoteBtn.disabled = true;
+  });
+
+  socket.on('gameEnded', (data) => {
     isGameStarted = false;
-    // 显示结果，包括积分变化
-    resultSpeakers.innerHTML = `发言者：${data.speakers.map(s => `${s.anonymousName}→${s.realName}`).join('，')}`;
-    // 投票结果...
+    amISpeaker = false;
+    updateUIForGameState();
+
+    resultSpeakers.innerHTML = `<p>🎤 发言者身份：<br>${data.speakers.map(s => `${s.anonymousName} → ${s.realName}`).join('<br>')}</p>`;
+
+    let voteHtml = `<p>🗳️ 投票统计 (总票数: ${data.totalVotes})</p>`;
+    voteHtml += `<p>匿名A正确票数: ${data.correctCountA} / 匿名B正确票数: ${data.correctCountB}</p>`;
+    if (data.votes.length) {
+      voteHtml += '<ul>';
+      data.votes.forEach(v => {
+        voteHtml += `<li>${v.voterName}: 猜A为 ${v.guessA} (${v.correctA?'✓':'✗'}), 猜B为 ${v.guessB} (${v.correctB?'✓':'✗'})</li>`;
+      });
+      voteHtml += '</ul>';
+    } else voteHtml += '<p>无人投票</p>';
+    resultVotes.innerHTML = voteHtml;
+
     let scoreHtml = '<ul>';
     Object.entries(data.scoreDelta).forEach(([name, delta]) => {
       if (delta > 0) scoreHtml += `<li>${name} +${delta}</li>`;
     });
     scoreHtml += '</ul>';
     resultScoreDelta.innerHTML = scoreHtml;
-    // 对话记录...
+
+    let msgHtml = '';
+    data.messages.forEach(m => {
+      const time = new Date(m.timestamp).toLocaleTimeString().slice(0,5);
+      msgHtml += `<div><strong>${m.anonymousName}:</strong> ${m.text} <span style="color:#8899bb;">${time}</span></div>`;
+    });
+    resultMessages.innerHTML = msgHtml || '<div>暂无对话</div>';
+
     gameResultPanel.classList.remove('hidden');
     roleHintPanel.classList.add('hidden');
-    updateUIForGameState();
+    addSystemMessage('🏁 游戏结束，结果已公布');
+    clearChat();
   });
 
-  // 排行榜
-  showLeaderboardBtn.addEventListener('click', () => {
-    socket.emit('getLeaderboard');
-  });
-  socket.on('leaderboard', list => {
+  socket.on('errorMsg', (msg) => showError(msg));
+
+  socket.on('leaderboard', (list) => {
     leaderboardList.innerHTML = list.map(p => `<li>${p.name} : ${p.score}分</li>`).join('');
     leaderboardPanel.classList.remove('hidden');
   });
-  closeLeaderboardBtn.addEventListener('click', () => {
-    leaderboardPanel.classList.add('hidden');
+
+  // 用户操作监听
+  createRoomBtn.addEventListener('click', () => {
+    const name = userNameInput.value.trim();
+    if (!name) return showError('请先输入姓名');
+    socket.emit('createRoom');
   });
 
-  // 发送假消息
+  joinRoomBtn.addEventListener('click', () => {
+    const roomId = joinRoomInput.value.trim().toUpperCase();
+    const name = userNameInput.value.trim();
+    if (!roomId) return showError('请输入房间号');
+    if (!name) return showError('请输入姓名');
+    socket.emit('joinRoom', { roomId, userName: name });
+  });
+
+  copyRoomBtn.addEventListener('click', () => {
+    if (currentRoomId) navigator.clipboard?.writeText(currentRoomId).then(() => alert('房间号已复制'));
+  });
+
+  startGameBtn.addEventListener('click', () => socket.emit('startGame'));
+  endGameBtn.addEventListener('click', () => socket.emit('endGame'));
+
+  sendPublicBtn.addEventListener('click', () => {
+    const msg = publicMessageInput.value.trim();
+    if (!msg) return;
+    socket.emit('publicMessage', msg);
+    publicMessageInput.value = '';
+  });
+  publicMessageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendPublicBtn.click(); });
+
+  sendAnonymousBtn.addEventListener('click', () => {
+    const msg = anonymousMessageInput.value.trim();
+    if (!msg) return;
+    socket.emit('anonymousMessage', msg);
+    anonymousMessageInput.value = '';
+  });
+  anonymousMessageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendAnonymousBtn.click(); });
+
   sendFakeBtn.addEventListener('click', () => {
     const text = fakeMessageInput.value.trim();
     if (!text) return;
@@ -407,7 +606,17 @@
     fakeMessageInput.value = '';
   });
 
-  // 其他事件绑定参考之前...
+  submitVoteBtn.addEventListener('click', () => {
+    if (hasVoted) return showError('你已经投过票了');
+    const guessA = voteSelectA.value;
+    const guessB = voteSelectB.value;
+    if (!guessA || !guessB) return showError('请完成两个猜测');
+    socket.emit('submitVote', { guessForA: guessA, guessForB: guessB });
+  });
+
+  closeResultBtn.addEventListener('click', () => gameResultPanel.classList.add('hidden'));
+  showLeaderboardBtn.addEventListener('click', () => socket.emit('getLeaderboard'));
+  closeLeaderboardBtn.addEventListener('click', () => leaderboardPanel.classList.add('hidden'));
 </script>
 </body>
 </html>
