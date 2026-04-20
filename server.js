@@ -19,32 +19,28 @@ const TOPICS = [
   { type: "pair", text: "i人 vs e人" }
 ];
 
-// ---------- 特殊身份枚举 ----------
+// ---------- 特殊身份 ----------
 const SPECIAL_ROLES = {
-  OBSERVER: "观察者",      // 看到另一人真实身份，不能发言
-  FAKER: "沉默干扰者",     // 可伪装发一条假消息
-  JUDGE: "裁判",           // 投票权重×2
-  COSER: "coser"           // 附加给匿名者，需模仿他人
+  OBSERVER: "观察者",
+  FAKER: "沉默干扰者",
+  JUDGE: "裁判",
+  COSER: "coser"
 };
 
-// ---------- 全局存储 ----------
 const rooms = {};
-const playerScores = {};   // 积分榜 { playerName: score }
+const playerScores = {};
 
-// 生成房间号
 function generateRoomId() {
   return uuidv4().substring(0, 6).toUpperCase();
 }
 
-// 随机话题
 function getRandomTopic() {
   return TOPICS[Math.floor(Math.random() * TOPICS.length)];
 }
 
-// 分配特殊身份 (返回每个玩家的身份数组)
 function assignSpecialRoles(users) {
   const roles = [];
-  const count = Math.floor(Math.random() * 4) + 1; // 1~4个特殊身份
+  const count = Math.floor(Math.random() * 4) + 1;
   const shuffled = [...users].sort(() => 0.5 - Math.random());
   const selected = shuffled.slice(0, Math.min(count, users.length));
 
@@ -53,11 +49,9 @@ function assignSpecialRoles(users) {
     const role = rolePool[Math.floor(Math.random() * rolePool.length)];
     roles.push({ userId: user.id, role });
   });
-
   return roles;
 }
 
-// 初始化房间
 io.on("connection", (socket) => {
   console.log("用户连接:", socket.id);
 
@@ -75,9 +69,9 @@ io.on("connection", (socket) => {
       votes: {},
       creator: socket.id,
       topic: topic,
-      specialRoles: [],        // 本局特殊身份分配 [{ userId, role }]
-      coserTarget: null,       // 若coser存在，存储 { speakerSocketId: targetName }
-      fakeMessageUsed: {}      // 记录干扰者是否已使用能力 { socketId: boolean }
+      specialRoles: [],
+      coserTarget: null,
+      fakeMessageUsed: {}
     };
     socket.emit("roomCreated", roomId);
     console.log(`房间 ${roomId} 已创建，话题: ${topic.text}`);
@@ -115,6 +109,7 @@ io.on("connection", (socket) => {
 
     io.to(roomId).emit("updateUsers", room.users.map(u => ({ id: u.id, name: u.name })));
     socket.emit("preGameHistory", room.preGameMessages);
+    console.log(`${trimmed} 加入房间 ${roomId}`);
   });
 
   socket.on("publicMessage", (msg) => {
@@ -140,7 +135,6 @@ io.on("connection", (socket) => {
 
     room.gameStarted = true;
 
-    // 1. 随机选2个发言者
     const shuffled = [...room.users].sort(() => 0.5 - Math.random());
     const speakers = shuffled.slice(0, 2);
     room.speakers = speakers.map(s => s.socketId);
@@ -149,21 +143,15 @@ io.on("connection", (socket) => {
       [speakers[1].socketId]: "匿名B"
     };
 
-    // 2. 分配特殊身份
     room.specialRoles = assignSpecialRoles(room.users);
-    // 初始化干扰者能力记录
     room.fakeMessageUsed = {};
     room.specialRoles.forEach(r => {
-      if (r.role === SPECIAL_ROLES.FAKER) {
-        room.fakeMessageUsed[r.userId] = false;
-      }
+      if (r.role === SPECIAL_ROLES.FAKER) room.fakeMessageUsed[r.userId] = false;
     });
 
-    // 3. 随机决定coser (20%概率附加给其中一个发言者)
     room.coserTarget = null;
     if (Math.random() < 0.2 && room.speakers.length > 0) {
       const coserSpeaker = speakers[Math.floor(Math.random() * speakers.length)];
-      // 随机选另一个玩家作为模仿对象
       const otherUsers = room.users.filter(u => u.socketId !== coserSpeaker.socketId);
       if (otherUsers.length > 0) {
         const target = otherUsers[Math.floor(Math.random() * otherUsers.length)];
@@ -174,7 +162,6 @@ io.on("connection", (socket) => {
       }
     }
 
-    // 4. 通知每个玩家其身份和能力
     room.users.forEach(user => {
       const special = room.specialRoles.find(r => r.userId === user.id);
       const isSpeaker = room.speakers.includes(user.socketId);
@@ -182,7 +169,6 @@ io.on("connection", (socket) => {
       let extraInfo = null;
 
       if (special?.role === SPECIAL_ROLES.OBSERVER) {
-        // 随机选另一个玩家告知身份
         const others = room.users.filter(u => u.id !== user.id);
         const target = others[Math.floor(Math.random() * others.length)];
         extraInfo = { type: "observer", seenName: target.name };
@@ -210,7 +196,6 @@ io.on("connection", (socket) => {
     io.to(socket.roomId).emit("gameStateChanged", { gameStarted: true });
   });
 
-  // 匿名发言
   socket.on("anonymousMessage", (msg) => {
     const room = rooms[socket.roomId];
     if (!room?.gameStarted) return;
@@ -222,7 +207,6 @@ io.on("connection", (socket) => {
     io.to(socket.roomId).emit("anonymousMessage", message);
   });
 
-  // 沉默干扰者发送假消息
   socket.on("fakeMessage", ({ anonymousAs, text }) => {
     const room = rooms[socket.roomId];
     if (!room?.gameStarted) return;
@@ -231,7 +215,6 @@ io.on("connection", (socket) => {
     const special = room.specialRoles.find(r => r.userId === user.id);
     if (!special || special.role !== SPECIAL_ROLES.FAKER) return;
     if (room.fakeMessageUsed[user.id]) return socket.emit("errorMsg", "假消息已使用");
-
     if (!["匿名A", "匿名B"].includes(anonymousAs)) return;
 
     room.fakeMessageUsed[user.id] = true;
@@ -246,7 +229,6 @@ io.on("connection", (socket) => {
     socket.emit("fakeUsed");
   });
 
-  // 投票
   socket.on("submitVote", ({ guessForA, guessForB }) => {
     const room = rooms[socket.roomId];
     if (!room?.gameStarted) return;
@@ -256,20 +238,14 @@ io.on("connection", (socket) => {
     const special = room.specialRoles.find(r => r.userId === user.id);
     const weight = special?.role === SPECIAL_ROLES.JUDGE ? 2 : 1;
 
-    room.votes[socket.id] = {
-      guessA: guessForA,
-      guessB: guessForB,
-      weight
-    };
+    room.votes[socket.id] = { guessA: guessForA, guessB: guessForB, weight };
     socket.emit("voteConfirmed");
   });
 
-  // 结束游戏 + 积分结算
   socket.on("endGame", () => {
     const room = rooms[socket.roomId];
     if (!room?.gameStarted) return;
 
-    // 发言者真实身份
     const speakerA = room.users.find(u => u.socketId === room.speakers[0]);
     const speakerB = room.users.find(u => u.socketId === room.speakers[1]);
     const speakerDetails = [
@@ -277,16 +253,12 @@ io.on("connection", (socket) => {
       { anonymousName: "匿名B", realName: speakerB?.name || "已离开", socketId: room.speakers[1] }
     ];
 
-    // 投票统计 & 积分计算
     const voteEntries = Object.entries(room.votes);
     const voteResults = [];
     let correctA = 0, correctB = 0;
-    const scoreDelta = {}; // 本局积分变化
-
-    // 初始化玩家积分变化
+    const scoreDelta = {};
     room.users.forEach(u => { scoreDelta[u.name] = 0; });
 
-    // 处理投票
     voteEntries.forEach(([voterId, vote]) => {
       const voter = room.users.find(u => u.socketId === voterId);
       if (!voter) return;
@@ -306,15 +278,12 @@ io.on("connection", (socket) => {
         weight
       });
 
-      // 观察者猜中任一 +2分 (仅首次)
       const special = room.specialRoles.find(r => r.userId === voter.id);
-      if (special?.role === SPECIAL_ROLES.OBSERVER) {
-        if (isCorrectA || isCorrectB) scoreDelta[voter.name] += 2;
+      if (special?.role === SPECIAL_ROLES.OBSERVER && (isCorrectA || isCorrectB)) {
+        scoreDelta[voter.name] += 2;
       }
-      // 裁判猜中积分翻倍已在权重中体现，额外奖励可加
     });
 
-    // 发言者积分：隐藏成功 (没人猜中自己)
     const speakerAReal = speakerDetails[0].realName;
     const speakerBReal = speakerDetails[1].realName;
     const guessedA = voteEntries.some(([_, v]) => v.guessA === speakerAReal);
@@ -322,7 +291,6 @@ io.on("connection", (socket) => {
     if (!guessedA && speakerA) scoreDelta[speakerA.name] += 2;
     if (!guessedB && speakerB) scoreDelta[speakerB.name] += 2;
 
-    // coser额外加分
     if (room.coserTarget) {
       const coserSpeaker = room.users.find(u => u.socketId === room.coserTarget.speakerSocketId);
       if (coserSpeaker) {
@@ -335,23 +303,17 @@ io.on("connection", (socket) => {
       }
     }
 
-    // 沉默干扰者：若有人猜错且对应假消息存在，得2分 (简化)
     room.specialRoles.filter(r => r.role === SPECIAL_ROLES.FAKER).forEach(r => {
       const faker = room.users.find(u => u.id === r.userId);
-      if (faker && room.fakeMessageUsed[r.userId]) {
-        // 简单判定：如果整体有猜错就加分
-        if (!guessedA || !guessedB) scoreDelta[faker.name] += 2;
+      if (faker && room.fakeMessageUsed[r.userId] && (!guessedA || !guessedB)) {
+        scoreDelta[faker.name] += 2;
       }
     });
 
-    // 累加积分到全局
     Object.entries(scoreDelta).forEach(([name, delta]) => {
-      if (delta > 0) {
-        playerScores[name] = (playerScores[name] || 0) + delta;
-      }
+      if (delta > 0) playerScores[name] = (playerScores[name] || 0) + delta;
     });
 
-    // 广播结果
     io.to(socket.roomId).emit("gameEnded", {
       speakers: speakerDetails,
       messages: room.messages,
@@ -362,7 +324,6 @@ io.on("connection", (socket) => {
       scoreDelta
     });
 
-    // 重置房间
     room.gameStarted = false;
     room.speakers = [];
     room.anonymousMap = {};
@@ -371,7 +332,6 @@ io.on("connection", (socket) => {
     room.specialRoles = [];
     room.coserTarget = null;
     room.fakeMessageUsed = {};
-    // 更换新话题
     room.topic = getRandomTopic();
 
     io.to(socket.roomId).emit("gameStateChanged", { gameStarted: false });
@@ -379,7 +339,6 @@ io.on("connection", (socket) => {
     io.to(socket.roomId).emit("newTopic", room.topic);
   });
 
-  // 获取排行榜
   socket.on("getLeaderboard", () => {
     const sorted = Object.entries(playerScores)
       .sort((a, b) => b[1] - a[1])
@@ -388,7 +347,6 @@ io.on("connection", (socket) => {
     socket.emit("leaderboard", sorted);
   });
 
-  // 断开连接
   socket.on("disconnect", () => {
     const room = rooms[socket.roomId];
     if (!room) return;
@@ -398,6 +356,7 @@ io.on("connection", (socket) => {
       room.users.splice(idx, 1);
       io.to(socket.roomId).emit("updateUsers", room.users.map(u => ({ id: u.id, name: u.name })));
       if (room.users.length === 0) delete rooms[socket.roomId];
+      console.log(`${user.name} 离开房间`);
     }
   });
 });
