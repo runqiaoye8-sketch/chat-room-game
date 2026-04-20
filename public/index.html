@@ -163,6 +163,18 @@
       margin-bottom: 12px;
       border: 1px solid #a29bfe;
     }
+    .role-line {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .role-label {
+      color: #b0bedd;
+    }
+    .role-value {
+      font-weight: bold;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -197,7 +209,11 @@
   </div>
 
   <!-- 身份提示区 -->
-  <div id="roleHintPanel" class="role-hint hidden"></div>
+  <div id="roleHintPanel" class="role-hint hidden">
+    <div class="role-line"><span class="role-label">是否匿名：</span><span class="role-value" id="displayIsSpeaker"></span></div>
+    <div class="role-line"><span class="role-label">特殊身份：</span><span class="role-value" id="displaySpecialRole"></span></div>
+    <div id="extraHintText" style="margin-top: 8px; font-style: italic;"></div>
+  </div>
 
   <!-- 游戏控制 -->
   <div style="display: flex; gap: 12px; margin-bottom: 18px;">
@@ -278,7 +294,7 @@
 <script>
   const socket = io();
 
-  // DOM 元素
+  // DOM 元素 (同前)
   const createRoomBtn = document.getElementById('createRoomBtn');
   const joinRoomInput = document.getElementById('joinRoomInput');
   const userNameInput = document.getElementById('userNameInput');
@@ -319,6 +335,9 @@
   const myNameDisplay = document.getElementById('myNameDisplay');
   const usersPanel = document.getElementById('usersPanel');
   const roleHintPanel = document.getElementById('roleHintPanel');
+  const displayIsSpeaker = document.getElementById('displayIsSpeaker');
+  const displaySpecialRole = document.getElementById('displaySpecialRole');
+  const extraHintText = document.getElementById('extraHintText');
   const topicDisplay = document.getElementById('topicDisplay');
   const showLeaderboardBtn = document.getElementById('showLeaderboardBtn');
   const leaderboardPanel = document.getElementById('leaderboardPanel');
@@ -477,16 +496,19 @@
     clearChat();
     addSystemMessage(`🎲 游戏开始！话题：${data.topic.text}`);
 
-    let hint = '';
-    if (data.extraInfo?.type === 'observer') {
-      hint = `🔍 你是观察者，你看到 ${data.extraInfo.seenName} 的真实身份。`;
-    } else if (data.extraInfo?.type === 'coser') {
-      hint = `🎭 你是 coser！请模仿 ${data.extraInfo.targetName} 发言。`;
+    // 更新身份提示面板（分离显示）
+    displayIsSpeaker.textContent = amISpeaker ? `是 (${data.anonymousName || ''})` : '否';
+    displaySpecialRole.textContent = specialRole || '无';
+
+    let extra = '';
+    if (data.extraInfo) {
+      if (data.extraInfo.type === 'observer') {
+        extra = `👁️ ${data.extraInfo.anonymousHint || ''} 你看到的名字是：${data.extraInfo.seenName}`;
+      } else if (data.extraInfo.type === 'coser') {
+        extra = `🎭 ${data.extraInfo.hint || ''} (目标：${data.extraInfo.targetName})`;
+      }
     }
-    if (specialRole) {
-      hint += ` 你的身份：${specialRole}`;
-    }
-    roleHintPanel.textContent = hint || (amISpeaker ? `你是 ${data.anonymousName}` : '你是观战者');
+    extraHintText.textContent = extra;
     roleHintPanel.classList.remove('hidden');
 
     if (!amISpeaker) populateVoteSelects(data.allUsers);
@@ -561,7 +583,7 @@
     leaderboardPanel.classList.remove('hidden');
   });
 
-  // 用户操作监听
+  // 用户操作
   createRoomBtn.addEventListener('click', () => {
     const name = userNameInput.value.trim();
     if (!name) return showError('请先输入姓名');
